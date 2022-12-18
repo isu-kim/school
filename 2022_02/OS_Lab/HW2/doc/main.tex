@@ -1,0 +1,950 @@
+\documentclass{homework}
+
+\usepackage{tcolorbox}
+\usepackage{etoolbox}
+\usepackage{svg}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{caption}
+\usepackage[newfloat]{minted}
+\usepackage{pgfplots}
+\usepackage{tabularx}
+\pgfplotsset{width=10cm,compat=1.9}
+
+
+\begin{document}
+\title{Multithreaded Word Count}
+\author{32190984 Isu Kim}
+\maketitle
+
+\newminted{python}{frame=lines,framerule=2pt}
+\newenvironment{code}{\captionsetup{type=listing}}{}
+\SetupFloatingEnvironment{listing}{name=Output}
+
+\maketitle
+\begin{center}
+Left Free Days : 5
+\end{center}
+\pagebreak
+
+\section{Index}
+\begin{enumerate}
+   \item How to Compile
+   \item Analysis on Original Code
+   \item 1 Producer \& 1 Consumer
+   \item 1 Producer \& $N$ Consumers
+   \item $N$ Producer \& $M$ Consumers with $K$ Shared objects (Failed)
+   \item Beating Max Performance (Yes it did!)
+   \item Conclusion \& Analysis
+\end{enumerate}
+\pagebreak
+
+\setcounter{section}{0}
+\section{Building} 
+There are 3 compile recipes with \texttt{Makefile} that is included in the package.
+\begin{itemize}
+   \item \texttt{prod_cons_v1}: For 1 producer 1 consumer.
+   \item \texttt{prod_cons_v2}: For 1 producer N consumers.
+   \item \texttt{project}: For N producers, M consumers and K shared objects.
+\end{itemize}
+
+For \texttt{prod_cons_v1} and \texttt{prod_cons_v2}, you can compile in following steps.
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ cd project
+$ make all
+\end{minted}
+\captionof{listing}{Using of \texttt{Makefile}}
+\end{code}
+\end{center}
+
+This will compile and generate two executable files named:
+\begin{itemize}
+   \item \texttt{prod_cons_v1}
+   \item \texttt{prod_cons_v2}
+\end{itemize}
+
+The usage is same as the original \texttt{prod_cons.c} that professor gave us.
+\\
+For \texttt{project}, you need \texttt{CMake} to compile the project. You can achieve by following commands
+You can compile the project using \texttt{CMake} by
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ cd project
+$ mkdir build && cd build
+$ cmake .. && cmake --build .
+\end{minted}
+\captionof{listing}{Compilation using \texttt{CMake}}
+\end{code}
+\end{center}
+The result will give you an executable file named project.
+\par
+
+
+\pagebreak
+
+\section{Analysis on Original Code} 
+The original code \texttt{prod\textunderscore con.c} that professor gave us had problems. Let's compile it and run it with a short text file.
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./a ../LICENSE 1 1
+main continuing
+Cons_7c4ea640: [00:14]
+Cons: 1 lines
+Prod_7cceb640: 21 lines
+main: consumer_0 joined with 1
+main: producer_0 joined with 21
+\end{minted}
+\captionof{listing}{Execution of \texttt{prod\textunderscore con.c}}
+\end{code}
+\end{center}
+
+
+This situation happened: (The number is the sequence)
+\begin{enumerate}
+    \item[1] Producer reads a line from file and \texttt{stored} line into shared object.
+    \item[1] Consumer tries to \texttt{read} and \texttt{update} the line that was in shared object.
+    \item[2] Producer reads a line from file and \texttt{stored} line into shared object.
+    \item[2] Consumer stops loop because the line stored in shared object was \texttt{NULL}. So, it just joined. (Sequence 1 occurred at the same time. Unless the producer thread stored data into shared object before consumer thread read and update the shared object, consumer thread will see shared object’s line as \texttt{NULL})
+    \item[3] Producer reads a line from file and \texttt{stored} line into shared object.
+    \item[4] Producer reads a line from file and \texttt{stored} line into shared object.
+    \item[5] …
+    \item[6] Producer reads a line from file and \texttt{stored} line into shared object.
+    \item[7] Producer finishes reading line from file since it was last line. Producer now joins.
+\end{enumerate}
+
+
+This makes following results:
+\begin{enumerate}
+ \item Producer thread successfully reads all 21 lines from file.
+ \item Consumer thread could not print all 21 lines (might have printed out one or two if consumer thread was lucky).
+\end{enumerate}
+We need to fix his code so that it can work properly!
+\pagebreak
+
+\section{1 Producer \& 1 Consumer}
+In HW2, our first goal is to correct code for 1 producer and 1 consumer. Since we have one producer thread and one consumer thread which are racing for shared object, race condition is inevitable. 
+\par
+To solve “1 producer \& 1 consumer” problem, we need to synchronize both threads. Meaning that producer and consumer has to work together, not separated from each other. The idea that I came up with is as it follows:
+
+\begin{algorithm}
+\caption{1:1 Producer}\label{alg:cap}
+\begin{algorithmic}
+\While{File not finished}
+\State Lock Mutex
+\If{$sharedObject.full$ = $1$}
+    \State Unlock Mutex, wait for signal  \Comment{Signal when shared object was consumed}
+\EndIf
+\State $sharedObject.full \gets 1$
+\State $sharedObject.line \gets line from file$
+\State Unlock Mutex and send signal \Comment{Signal to consumer thread}
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+In short, the producer thread will check if the shared object was empty. If it was empty, it will read a line from file and store data into the shared object.
+
+\begin{algorithm}
+\caption{1:1 Consumer}\label{alg:cap}
+\begin{algorithmic}
+\While{True}
+\State Lock Mutex
+\If{$sharedObject.full$ = $0$}
+    \State Unlock Mutex, wait for signal  \Comment{Signal when shared object was produced}
+\EndIf
+\State $sharedObject.full \gets 0$
+\If{$sharedObject.line$ = \texttt{NULL}} \Comment{The file ended}
+    \State Unlock Mutex and send signal \Comment{Signal to producer thread}
+    \State Break loop
+\EndIf
+\State Process $sharedObject.line$
+\State Unlock Mutex and send signal \Comment{Signal to producer thread}
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+In short, the consumer thread will check if the shared object was full, it will process (in our case it will be \texttt{printf()}) read line.
+\par
+Producer thread and consumer thread iterates this process until the file that we are reading is over. Our key is to make each thread wait for the other thread if the condition for current thread is not satisfied (in this case if shared object is empty or not). The logic that I came up with can be implemented in \texttt{C} with features from \texttt{pthread.h}. 
+\pagebreak
+\par
+\texttt{pthread.h} offers us following functions that come in handy.
+
+\begin{enumerate}
+   \item \texttt{pthread_mutex_lock}: For locking mutex while using shared object.
+   \item \texttt{pthread_mutex_unlock}: For unlocking mutex while using shared object.
+   \item \texttt{pthread_cond_wait}: For waiting for condition to be satisfied. According to manual, this function will internally call \texttt{pthread_mutex_unlock}. After the condition was set, it will automatically call \texttt{pthread_mutex_lock} as well.
+   \item \texttt{pthread_cond_signal}: For sending signal at condition.
+   \item \texttt{pthread_cond_broadcast}: For sending signal to all threads at condition.
+\end{enumerate}
+
+The implementation of code can be found from \texttt{prod\textunderscore cons\textunderscore v1}. that is attached with this document.
+\par
+
+Since I would like to keep this document as clean as posssible, I will not attach code nor screenshot of the code snippet. If you would like to take a look at how I implemented the code, please take a look at \texttt{prod\textunderscore cons\textunderscore v1.c}.
+\par
+
+Let's now compile and execute the code with same file named \texttt{LICENSE} (The file is basically a MIT license which has 21 lines). 
+\\
+
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./prod_cons_v1 ../../LICENSE 1 1
+main continuing
+Cons_5254640: [00:00] MIT License
+Cons_5254640: [01:01]
+Cons_5254640: [02:02] Copyright (c) 2019 mobile-os-dku-cis-mse
+...
+Cons_5254640: [20:20] SOFTWARE.
+Prod_5a55640: 21 lines
+Cons: 21 lines
+main: consumer_0 joined with 21
+main: producer_0 joined with 21
+\end{minted}
+\captionof{listing}{Successful Execution of \texttt{prod\textunderscore cons\textunderscore v1.c}}
+\end{code}
+\end{center}
+
+As we all can see, the execution was successful. It can read the file successfully without any missing lines or duplicated lines. Also each consumer thread and producer thread both joined with 21 lines which means they did the job they were supposed to do. Yay!
+\par
+\pagebreak
+
+Now, let's try with 1 producer and 5 consumers with the same code
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./prod_cons_v1 ../../LICENSE 1 5
+Cons_fbe7a640: [00:00] MIT License
+Cons_fb679640: [00:01]
+main continuing
+Cons_fbe7a640: [01:02] Copyright (c) 2019 mobile-os-dku-cis-mse
+Cons_f3fff640: [00:03]
+free(): double free detected in tcache 2
+Aborted (core dumped)
+\end{minted}
+\captionof{listing}{Failure Execution of \texttt{prod\textunderscore cons\textunderscore v1.c}}
+\end{code}
+\end{center}
+
+Oops! It failed. Not only did it just failed, it also printed out some weird characters. (Unfortunately, due to my latex editor's problem, it could not compile broken characters, but there are some broken characters if you execute the code yourself). Also, it is mentioned that \texttt{free()} was called twice. Let's take a guess on what caused the failure.
+\par
+In short, for locking a single shared object, race condition occurs between consumer threads and producer thread. 
+
+When producer thread finished and broadcasted signal to all waiting consumers threads, all consumer threads will fight for locking a single shared object. No matter which consumer gets the privilege to lock shared object, that consumer thread has to unlock shared object and send signal to producer thread that is waiting for the signal. Right at this moment everything gets messed up. The 4 remaining consumers that failed to lock shared object and producer thread will all fight for locking a single shared object and at this moment race condition for locking shared object occurs.
+\par
+
+In this case, there are two possible cases:
+\begin{itemize}
+   \item[a)] Producer thread wins and locks shared object.
+   \item[b)] One of consumer threads wins and locks shared object.
+\end{itemize}
+
+\underline{Case a)}, the producer thread will read file and put data into the shared object. However, the mutex order is messed up already. (Since 4 other threads are waiting for their turn to lock shared object). 
+
+\underline{Case b)}, one of the consumer threads wins and locks shared object. It tries to perform what it has to do: read data from shared object, print it out, and \texttt{free()}. Since it is trying to print out a \texttt{free()}ed string, it prints out broken strings.
+\par
+Also, not only this thread will print out a broken string, but it will also try to 
+\texttt{free()} a string that has been already \texttt{free()}ed. It is well known fact that if some variable that was \texttt{free()}ed twice, it has potential to crash process and it is an \textit{Undefined Behavior} in C. (Of course, the mutex order is messed up as well). Even if you do not \texttt{free()} the line that was processed, due to mutex order getting messed up, following thing happens.
+\pagebreak
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./prod_cons_v1 ../../LICENSE 1 5
+Cons_83fff640: [02:04] Permission is hereby granted, ...
+Cons_892c4640: [00:04] Permission is hereby granted, ...
+Cons_8a2c6640: [01:04] Permission is hereby granted, ...
+Cons_8aac7640: [04:04] Permission is hereby granted, ...
+Cons_89ac5640: [01:04] Permission is hereby granted, ...
+main continuing
+...
+\end{minted}
+\captionof{listing}{Failure Execution of \texttt{prod\textunderscore cons\textunderscore v1.c}}
+\end{code}
+\end{center}
+
+Since mutex order is messed up, duplicate lines get printed out and sum of all consumer’s processed line exceeds total lines in the original file. In some cases, it even deadlocks. Since threads read same lines multiple times, the concurrency and synchronization is broken.
+\par
+
+Therefore, no matter it was \underline{Case a)} or \underline{Case b)}, result is far from accuracy. (If \underline{Case a}) gets super lucky, there is very minuscule chance that it might get it correctly. Which is almost a miracle.)
+\par
+
+So, we have another goal to solve single producer and multiple consumer problem: “Avoiding race condition between mutex locking”. To do that, I came up with an idea of using two mutexes and two conditions. This topic will be explained in "1 Producer with N Consumers” problem. Which we will be looking at in the next page.
+
+\pagebreak
+\section{1 Producer \& $N$ Consumers}
+Our second goal is to solve “1 Producer \& $N$ consumers” problem. In order for us to solve the problem we need to prevent race condition between consumer threads. This means that producer will work just like it did, however there should be one more synchronization between those consumer threads. Since the pseudo-code and algorithm for producer does not change, I will show you the consumer thread part only.
+
+\begin{algorithm}
+\caption{1:N Consumer}\label{alg:cap}
+\begin{algorithmic}
+\While{True}
+\State Lock consumer Mutex  \Comment{Avoid race condition between consumers}
+\State Lock global Mutex
+\If{$sharedObject.full$ = $0$}
+    \State Unlock Mutex, wait for signal  \Comment{Signal when shared object was produced}
+\EndIf
+\State $sharedObject.full \gets 0$
+\If{$sharedObject.line$ = \texttt{NULL}} \Comment{The file ended}
+    \State Unlock consumer Mutex
+    \State Unlock global Mutex and send signal 
+    \State Break loop
+\EndIf
+\State Process $sharedObject.line$
+\State Unlock consumer Mutex
+\State Unlock global Mutex and send signal \Comment{Signal to producer thread}
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+Producer works just as it did, for consumer thread we need to refactor the code a bit. In this problem, our key is to make a single consumer thread active at a time by using mutex. We do not need to take care about which consumer thread is working at the moment, but we shall have just one consumer thread at a time. The logic that I came up with can be implemented in \texttt{C} with functions from \texttt{pthread.h}. I am going to use the same functions that \texttt{pthread.h} offers, however will be replacing \texttt{pthread_cond_signal} into \texttt{pthread_cond_broadcast} since there are multiple threads waiting for the condition to be met. 
+\par
+Also for implementation, we will be having two \texttt{pthread_mutex_t}s and one \texttt{pthread_cond_t} stored in shared object like below:
+\begin{itemize}
+   \item \texttt{globalLock}: This is for mutex between producer and consumer threads.
+   \item \texttt{consumerLock}: This is for condition between producer and consumer threads.
+   \item \texttt{globalCond}: This is for mutex among consumer threads. This will prevent consumer threads racing into the shared object and messing up the mutex order.
+\end{itemize}
+
+This will prevent producer thread and consumer threads racing for locking mutex for a shared object at once. Since consumer thread shares a single consumer mutex and races for locking consumer mutex, only one consumer thread will be alive at the moment. When a consumer thread locked consumer mutex, there might be two cases:
+
+\begin{itemize}
+   \item[a)] The shared object is filled.
+   \item[b)] The shared object is not filled.
+\end{itemize}
+
+\underline{Case a)} This will mean that producer thread stored something into the shared object, unlocked global mutex and broadcasted signal to consumer thread. In this case, the consumer thread will lock the global mutex and will access data from shared object, print the store line, \texttt{free()} data. When the consumer thread is done, it will unlock global mutex and consumer mutex as well as broadcasting signal to producer thread.
+
+\underline{Case b)} This will mean that the producer thread did not store something into the shared object. Thus, the consumer thread who won the race will wait for producer thread to finish putting data into the shared object. After that, same thing goes like \underline{Case a)}.
+\par
+
+In either cases, everything will run successfully since:
+\begin{enumerate}
+   \item Only one consumer thread is active at a time.
+   \item Only one thread (including all consumer threads and producer threads) has access to shared object.
+\end{enumerate}
+This will not violate concurrency and keep our data alive!
+\par
+
+The implementation of code can be found from \texttt{prod\textunderscore cons\textunderscore v2}. that is attached with this document.
+\par
+
+Now, let's execute the program using \texttt{LICENSE} text file.
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./prod_cons_v2 ../../LICENSE 1 5
+[+] Producer 0 created !
+[+] Consumer 0 created !
+[+] Consumer 1 created !
+[+] Consumer 2 created !
+[+] Consumer 3 created !
+[+] Cons_a569a640: [00:00] MIT License
+...
+[+] Cons_9f7fe640: [14:20] SOFTWARE.
+[+] consumer_0 joined with 6
+[+] consumer_1 joined with 0
+[+] consumer_2 joined with 0
+[+] consumer_3 joined with 15
+[+] consumer_4 joined with 0
+[+] producer_0 joined with 21
+
+\end{minted}
+\captionof{listing}{Successful Execution of \texttt{prod\textunderscore cons\textunderscore v2.c}}
+\end{code}
+\end{center}
+
+The execution of 1 producer with 5 consumers ended without any failure. However, there is some strange thing! There was total 21 lines in text file, however 17 of them were consumed by consumer 1 thread. Also, the performance seemed not to have improved at all.
+\par
+
+Let’s take a look at this problem and see if this 1 producer with N consumer problem was solved properly and whether this is an efficient solution or not.
+\par
+
+In short, this problem occurs since only 1 consumer thread is alive at a time. No matter how many consumer threads were generated, all other threads except the one which locked the consumer mutex will be “blocked”. 
+\par
+
+According to official document for \texttt{pthread_mutex_lock}, it is mentioned that \textit{“If the mutex is already locked, the calling thread shall block until the mutex becomes available.”}. “Block” means that the thread is put in a wait (sleeping) state, like the picture below:
+\par
+
+\begin{figure}[h]
+  \centering
+  \includesvg[inkscapelatex=false, width = 400pt]{1onn-1.svg}
+  \caption{1 Producer with $N$ Consumers, 1 Shared Object}
+\end{figure}
+
+This will make only consumer thread active at a time when consumer thread has to be activated. This makes no difference between using a single consumer thread. Let’s assume that we implement multiple producers in the same as how we implemented, the following picture will describe this.
+\par
+
+\begin{figure}[h]
+  \centering
+  \includesvg[inkscapelatex=false, width = 400pt]{1onn-2.svg}
+  \caption{1 Producer with $N$ Consumers, 1 Shared Object}
+\end{figure}
+
+Therefore, even if we implement multiple producers and multiple consumers, with using just one single shared object, it makes no performance boost. Also, in theory this might be slower since the producer and consumers have their own mutexes to lock and unlock, while with single producer and single consumer there is only one mutex to lock and unlock.
+\par
+
+So, implementing multiple producers in this way with single shared object seems pointless to me since this will make our multi-threaded program act as if it is just single threaded program. Therefore, I will not try to implement this at all.
+\par
+
+In short, I can pretty much safely say that \textit{“If we are using multiple producers and multiple consumers with one single shared object, this will make no performance difference from single producer and single consumer”}. 
+\par
+
+Then, how can we improve performance when using multiple consumers and multiple producers? I came up with the idea that we can improve performance with making multiple shared objects instead of single shared object. 
+
+Let’s give it a shot. (Is continued in the next page)
+\pagebreak
+
+\section{$N$ Producer \& $M$ Consumers with $K$ Shared objects} 
+Before we start this subject, I came across a fun picture in the web while implementing this project. I would like to share this picture since it explained lots of things that happened during implementing this project. 
+\par
+
+\begin{center}
+\begin{figure}[h]
+    \centering
+    \includegraphics{a8d72-multithreadingmeme.png}
+    \caption{From https://kartikiyer.com/2019/06/16/synchronizing-multi-threaded-code-based-on-object-value/ }
+    \label{fig:my_label}
+\end{figure}
+\end{center}
+
+In short, this implementation unfortunately failed. When I was implementing this project, I encountered countless:
+\begin{itemize}
+    \item Dead locks
+    \item Race conditions
+    \item Messed up execution
+    \item Messed up signals
+    \item Desynchronization
+\end{itemize}
+
+Professor told us to fix a bit of part from the given source code \texttt{prod_cons.c}. However, in order for me to implement my idea into real \texttt{C} code, I had to reconstruct everything from scratch. Also, no semaphore was used. Everything was implemented with mutexes, signals, and conditions (which I came to regret a lot).
+
+In short, the implementation kind of worked, but failed in aspect of reliability due to my lack of skills when it comes to concurrency. The implementation was painful and took almost two weeks, however it was super fun. 
+
+So, the problem that occurred from “1 Producer N consumer” was that if we had a single shared object, that would make no performance improvement at all since it will work as if it is a single thread process. Thus, I came up with methods of using multiple shared objects at once.
+
+In order for me to achieve this goal, I came up with using handlers and worker threads. The basic idea is as it follows:
+\begin{itemize}
+    \item Producer handler will tell producer worker to read line from file and put data in specific shared object. 
+    \item Consumer handler will tell consumer worker to retrieve data from specific shared object and process the string. (In our case it will be counting words)
+\end{itemize}
+To implement this, there should be 4 types of different threads.
+\begin{itemize}
+    \item Producer handler $\times 1$
+    \item Consumer handler $\times 1$
+    \item Producer worker $\times M$
+    \item Consumer worker $\times N$
+\end{itemize}
+In order for me to manage those threads, we need a precise control over all threads. Not to dead locks, no race conditions. 
+\par
+
+Following pseudo-code explains how each threads are designed and implemented.
+\par
+
+\begin{algorithm}
+\caption{Producer Handler}\label{alg:cap}
+\begin{algorithmic}
+\State $emptyIndex \gets 0$
+\State $curWorker \gets 0$
+\While{File not finished}
+\If{All Shared objects full}
+    \State Wait for signal  \Comment{Signal when shared object was consumed}
+    \State Continue \Comment{Go back to the start of the loop}
+\EndIf
+\State $emptyIndex \gets $Empty shared object  \Comment{Assign job info}
+\State $curWorker \gets $Available worker
+\State Assign job to $curWorker$
+\EndWhile
+\While{Workers not over}
+\State Send signal to all worker threads  \Comment{Wake sleeping workers}
+\State Set empty shared objects as finished
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Producer Worker}\label{alg:cap}
+\begin{algorithmic}
+\State $readCount \gets 0$
+\State $line \gets NULL$
+\State $read \gets 0$
+\While{True}  
+\State Wait until handler's signal arrives
+\State $line \gets $Read line from file  
+\State $read \gets $Read Result
+\State $targetObject \gets $Assigned work from handler
+\If{Assigned empty job}
+    \State Set state terminated
+    \State Break loop
+\EndIf
+\If{$read$ = -1}
+    \State $targetObject.line \gets NULL$  \Comment{Let consumer know this was last}
+    \State $targetObject.isFull \gets -1$
+    \State Send signal $targetObject.cond$  \Comment{Send signal to consumer worker}
+    \State Break loop
+\EndIf
+\State $targetObject.line \gets line$  \Comment{Store data}
+\State $targetObject.isFull \gets 1$
+\State Send signal $targetObject.cond$ 
+\State Set state available
+\State $readCount \gets $readCount$ + 1$
+\EndWhile
+\State Return $readCount$
+\end{algorithmic}
+\end{algorithm}
+
+
+\begin{algorithm}
+\caption{Consumer Handler}\label{alg:cap}
+\begin{algorithmic}
+\State $emptyIndex \gets 0$
+\State $curWorker \gets 0$
+\While{Workers not over}
+\If{All Shared objects empty}
+    \State Wait for signal  \Comment{Signal when shared object was produced}
+    \State Continue \Comment{Go back to the start of the loop}
+\EndIf
+\State $emptyIndex \gets $Empty shared object  \Comment{Assign job info}
+\State $curWorker \gets $Available worker
+\State Assign job to $curWorker$
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Consumer Worker}\label{alg:cap}
+\begin{algorithmic}
+\State $readCount \gets 0$
+\State $line \gets NULL$
+\State $read \gets 0$
+\While{True}  
+\State Wait until handler's signal arrives
+\State $targetObject \gets $Assigned work from handler
+\If{$targetObject.isFull$ = 0}  \Comment{Target object was not filled in yet}
+        \State Wait for signal  \Comment{Signal when shared object was filled}
+        \State Continue \Comment{Go back at where it got signal}
+\EndIf
+\If{$targetObject.line$ = NULL}  \Comment{File was over}
+    \State Set worker state terminated
+    \State Break loop
+\EndIf
+\State $line \gets targetObject.line$  \Comment{Retrieve data}
+\State $targetObject.isFull \gets 0$
+\State Process $line$
+\State Set state available
+\State $readCount \gets $readCount$ + 1$
+\EndWhile
+\State Return $readCount$
+\end{algorithmic}
+\end{algorithm}
+
+\pagebreak
+Let’s assume the following case:
+\begin{itemize}
+    \item 1 Producer
+    \item 1 Consumer
+    \item 2 Shared Objects
+\end{itemize}
+The threads will work like this picture below:
+
+\begin{figure}[h]
+  \centering
+  \includesvg[inkscapelatex=false, width = 400pt, height = 175pt]{thread.svg}
+  \caption{Thread and Time graph}
+\end{figure}
+
+\pagebreak
+In short, producer handler and consumer handler will assign workers for each shared object. Producer worker will lock shared object and write data into it. When it is done writing data into the shared object, it will unlock mutex. Consumer worker at the same time tried to lock shared object, however since it was not filled in yet, it will wait until producer worker finishes writing data. When producer worker finished writing data, consumer worker will lock mutex and access data. When it is done using shared object, it will release lock. This process goes on until the end of the file. 
+\par
+
+After the file was finished, each workers and handlers will join. Then the stats of the file retrieved by each consumer workers will be merged into one stat. Then print out the result of statistics of the file that was requested to analyze. 
+\par
+
+In order for us to achieve this, we need:
+\begin{itemize}
+    \item A mutex between producer handler and consumer handler. Since they need to know shared object’s status accurately, they need a mutex that avoids race condition on shared object’s status
+    \item Mutexes in shared objects. Since producer worker and consumer worker will use a same shared object, they need a mutex that avoids race condition on shared object’s data. For example, consumer worker should not access shared object when producer worker was writing some data into it, vice versa.
+    \item Conditions between each handlers and worker threads. Since handler thread needs to wake worker thread up and assign job to the worker thread, they need a condition that will wake worker thread up.
+    \item Condition between producer handler and consumer workers, worker handler and producer workers. Since they need to know if the shared object was filled or not.
+\end{itemize}
+
+You can refer to the code in \texttt{project} directory. The code has following sources:
+\begin{itemize}
+    \item \texttt{main.c}: Code for main function. This initializes all variables and starts threads.
+    \item \texttt{common.c} \& \texttt{common.h}: Code for some shared codes.
+    \item \texttt{producer.c} \& \texttt{producer.h}: Code for producer threads.
+    \item \texttt{consumer.c} \& \texttt{consumer.h}: Code for consumer threads.
+\end{itemize}
+You can execute project using following command.
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./project <readfile> #Producer #Consumer #SharedObjects
+\end{minted}
+\captionof{listing}{Executing Project}
+\end{code}
+\end{center}
+Please be advised that $\#SharedObjects$ must be greater or equal to maximum between $\#Producer$ and $\#Consumer$.
+\par
+So, an example execution will be:
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./project ObsoleteFiles.incOld 10 10 20
+\end{minted}
+\captionof{listing}{Example of Executing Project}
+\end{code}
+\end{center}
+This will execute 10 producer threads, 10 consumer threads with 20 shared objects for file named \texttt{ObsoleteFiles.incOld}. Let’s execute with file named \texttt{ObsoleteFiles.incOld} from \texttt{FreeBSD9-orig.tar} (originally named \texttt{ObsoleteFiles.inc})
+\\
+
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./project ObsoleteFiles.incOld 10 10 20
+[+] Starting job...
+[+] Reading file : ObsoleteFiles.incOld
+[+] Job info : 10 Producers / 10 Consumers /  20 Shared objects
+[+] If this process get stuck, kill it. ...
+\end{minted}
+\captionof{listing}{Example of Executing Project}
+\end{code}
+\end{center}
+
+The process starts with 10 producers, 10 consumers and 10 shared objects. (If you executed the command and if it was stuck, please kill process using \texttt{SIGINT}. This has low chance of happening however it sometimes does. Unfortunately, I could not make the possibilities of my process getting into dead lock down to 0%)
+\\
+
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+[PH] Joined
+[PW00] Read 614 lines
+[PW01] Read 9 lines
+[PW02] Read 619 lines
+[PW03] Read 549 lines
+...
+[+] Producer read 5490 lines
+...
+[CW08] Processed 557 lines
+[CW09] Processed 547 lines
+[CH] Joined
+[+] Consumer read 5490 lines
+\end{minted}
+\captionof{listing}{Example of Executing Project}
+\end{code}
+\end{center}
+
+\pagebreak
+Consumer and producer handlers each has a mechanism that distributes workload to each worker thread. This might be inefficient since the handlers need to perform extra operation to select worker threads, however I just wanted to implement a kind of load balancing for each worker thread. 
+\\
+
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+[+] Consumer read 5490 lines
+*** print out distributions ***
+  #ch  freq
+[  1]:  539     *****
+[  2]:  209     **
+[  3]:  185     **
+[  4]:  141     *
+[  5]:  123     *
+[  6]:  189     **
+[  7]:  208     **
+[  8]:  143     *
+[  9]:  314     ***
+...
+[ 25]:   67
+[ 26]:   75
+[ 27]:   71
+[ 28]:   93     *
+[ 29]:  134     *
+[ 30]: 4497     *************************************************
+...
+\end{minted}
+\captionof{listing}{Result of Executing Project}
+\end{code}
+\end{center}
+
+Then, this will print out the distribution of the content. The source code came from professor’s \texttt{char_stat.c}. Modified a bit of that code and it worked like magic! The image was too tiny, so I will attach result file as \texttt{output.png}.
+\par
+
+So, the question arises. Is this really faster than original \texttt{char_stat.c}? Unfortunately, the answer happened to be no. Let’s see comparison of the result:
+
+\begin{figure}[h]
+    \begin{center}
+        \resizebox{0.6\textwidth}{!}{\input{histogram.pgf}}
+    \end{center}
+    \caption{Standard Deviation of Each Results}
+\end{figure}
+
+\pagebreak
+
+Our project had average of 2.4522 seconds and standard deviation about 0.97. However, \texttt{char_stat.c} had average of 0.005 and had standard deviation about 0.01. So, sadly I have failed to beat the fastest execution time. Then, let’s compare results in this process with different parameters.
+\par
+
+The test was conducted with file named \texttt{ObsoleteFiles.incOld} from \texttt{FreeBSD9-orig.tar} (Originally named \texttt{ObsoleteFiles.inc}). Now, I am going to change some numbers of producers, consumers and shared objects. Now, let’s see how it goes!
+\par
+
+\begin{center}
+\begin{table}[h]
+\begin{tabularx}{1.0\textwidth} { 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X | }
+ \hline
+ \#Producers & \#Consumers & \#Shared Objects & Time (Sec)\\
+ \hline
+ 10 & 10 & 10 & 3.051\\
+ \hline
+ 10 & 10 & 20 & 1.048\\
+ \hline
+ 10 & 20 & 20 & 1.045\\
+ \hline
+ 20 & 10 & 20 & 1.041\\
+ \hline
+ 20 & 20 & 20 & 1.047\\
+ \hline
+ 30 & 20 & 30 & 1.050\\
+ \hline
+ 30 & 30 & 30 & 1.048\\
+\hline
+\end{tabularx}
+\caption{Execution Time by Arguments}
+\end{table}
+\end{center}
+
+Surprisingly, the results did not vary that much. Also, it had no consistency within those results as well. For example, the variance between each execution with same arguments varied so much:
+
+\begin{center}
+\begin{table}[h]
+\begin{tabularx}{1.0\textwidth} { 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X | }
+ \hline
+ Trial 1 & Trial 2 & Trial 3 & Trial 4 & Trial 5 & Trial 6 & Trial 7 & Trial 8 & Trial 9 & Trial 10\\
+ \hline
+ 3.043s & 1.036s & DL & 1.038s & 5.043s & DL & 1.038s & DL & 2.040s & 1.037s\\
+\hline
+\end{tabularx}
+\caption{Execution Time for Each Trials}
+\end{table}
+\end{center}
+In the table, DL means dead lock. The process could not proceed since the execution got stuck.
+\par
+
+In short, the implementation failed since there were too many dead locks and the result were not consistent: which were slower up to 5 times more than the fastest execution. However, I can definitely say one thing: “Multithreading might perform worse if programmed bad”. I was expecting “more producers, consumers and shared objects will be faster”. Which turned out to be not the case for this implementation. 
+\par
+While I was preparing for my mid-term exam, I kind of got smarter. So, I made a new way but simple way of solving this problem. Which I think can beat the maximum concurrency. If you are interested, please take a look at the next page.
+\pagebreak
+\section{Beating Max Performance (Yes it did)} 
+So the basic idea of implementing this one was the following:
+
+\begin{enumerate}
+   \item Use \texttt{fseek()} instead of using shared \texttt{getdelim()}.
+   \item Assign segments to the producer threads to concurrently read the file.
+   \item Merge all the word stats in the last moment.
+   \item Match a single producer thread and a consumer thread to use a single shared object.
+\end{enumerate}
+
+Since I had so much things going on after the mid-term exam, I could not implement an $N$ producers and $M$ consumers method. This implementation is only limited to $N$ producers and $N$ consumers. 
+
+\begin{figure}[h]
+  \centering
+  \includesvg[inkscapelatex=false, scale=0.5]{hw2.svg}
+  \caption{Implementation of Beating Performance}
+\end{figure}
+
+My idea works in this way:
+\begin{enumerate}
+   \item When starting the program, main function will check how big the file is.
+   \item With that file size, it will try to make most evenly distributed segments as possible.
+   \item With those segments, each producer threads are assigned a segment to read from file.
+   \item When producer reads, it reads data by 4096 bytes. (Which is block size)
+   \item Producer stores the data into shared object with its corresponding consumer.
+   \item Consumer retrieves data from shared object and process word counter.
+\end{enumerate}
+
+In this way, each threads just need one synchronization between producers and consumers. Meaning that the maximum concurrency can be met.
+
+\par
+The source code can be found in \texttt{its_time_to_let_go} directory under git. You can try this one out by building project using following method:
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ mkdir build && cd build
+$ cmake .. && cmake --build .
+\end{minted}
+\captionof{listing}{Compiling Code}
+\end{code}
+\end{center}
+\pagebreak
+It will give you an executable file named \texttt{hw2_final}. You can execute the file by following command.
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./hw2_final ./FreeBSD09-orig.tar 100
+\end{minted}
+\captionof{listing}{Example of executing code}
+\end{code}
+\end{center}
+\\
+This will execute word counter for file named \texttt{FreeBSD09-orig.tar} with 100 concurrent threads.
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ ./hw2_final ../FreeBSD9-orig.tar 100
+[+] Total file size : 679818240 / Thread count : 100
+[+] Producer 0 read 6818663 bytes
+...
+[+] Total : 679818240 / 682386432
+*** print out distributions ***
+  #ch  freq
+[  1]: 381278   *************
+[  2]: 321529   ***********
+[  3]: 245409   ********
+[  4]: 265877   *********
+[  5]: 142357   ****
+...
+\end{minted}
+\captionof{listing}{Example output}
+\end{code}
+\end{center}
+\\
+Let's check the execution time so that we can verify that this code is actually better than \texttt{char_stat.c} that professor gave us which runs in single thread.
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ time ./hw2_final ../FreeBSD9-orig.tar 100
+real    0m0.371s
+user    0m2.553s
+sys     0m6.077s
+...
+\end{minted}
+\captionof{listing}{Execution Result}
+\end{code}
+\end{center}
+\\
+Meanwhile, \texttt{char_stat.c} which professor gave us had following result:
+\\
+\begin{center}
+\begin{code}
+\begin{minted}[frame=single,framesep=10pt]{bash}
+$ time ./char_stat ../FreeBSD9-orig.tar
+...
+real    0m2.980s
+user    0m2.844s
+sys     0m0.136s
+\end{minted}
+\captionof{listing}{Execution Result}
+\end{code}
+\end{center}
+\\
+So, this program definitely beats the performance. By comparing \texttt{real} time, my program was roughly 8 times faster than \texttt{char_stat.c}. Let's compare how it works with different thread counts.
+
+\begin{center}
+\begin{table}[h]
+\begin{tabularx}{1.0\textwidth} { 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X 
+  | >{\centering\arraybackslash}X | }
+ \hline
+ 1 & 2 & 3 & 5 & 10 & 20 & 50 & 100\\
+ \hline
+ 3.339 & 1.433 & 1.101 & 0.695 & 0.436 & 0.333 & 0.318 & 0.374\\
+\hline
+\end{tabularx}
+\caption{Execution Time by Thread Count}
+\end{table}
+\end{center}
+Quite impressing, isn't it? Although, 100 threads performed worse than 50 threads, there were kind of a improvement with increasing thread count. The table can be visualized like this:
+\begin{figure}[h]
+    \begin{center}
+        \resizebox{0.7\textwidth}{!}{\input{oshw2.pgf}}
+    \end{center}
+    \caption{Performance Boost by Thread Count}
+\end{figure}
+\\
+However, with 100 threads, it performs worse than 50 threads. Besides my poor multithreading skills, I needed something to take blame on. Which turned out to be a law named \textit{Amdhal's Law}. I will deal with this subject in the next page.
+
+\pagebreak
+\section{Conclusion \& Analysis}
+\begin{figure}[h]
+  \centering
+  \includesvg[inkscapelatex=false, scale=0.7]{AmdahlsLaw.svg}
+  \caption{From https://en.wikipedia.org/wiki/Amdahl\%27s_law#/media/File:AmdahlsLaw.svg}
+\end{figure}
+
+So, let’s assume that in a multiverse, I have successfully implemented this program flawlessly (no dead locks, no inconsistency, no whatsoever). 
+\par
+
+Let’s assume the following:
+\begin{itemize}
+    \item 75\% of my program was able to be ran in parallel. Let’s say 25\% is not able to be ran in parallel.
+    \item We had some threads that could accelerate my program.
+    \item My program was perfect, no dead locks. 100\% guaranteed working.
+\end{itemize}
+
+Let’s apply \textit{“Amdahl's law”}:
+
+\[
+    S\textsubscript{latency}(s) = \frac{1}{(1-p) + \frac{p}{s}}
+\]
+
+So, we have $p=0.75$ (since our 75\% of my program was able to be ran in parallel). Let's see how it goes when we had multiple threads that accelerate my program. For example, if we had 2 threads (this means $s=2$), the performance would become:
+
+\[
+    S\textsubscript{latency}(0.75) = \frac{1}{(1-0.75) + \frac{0.75}{2}} = 1.6
+\]
+
+That is, compared to 1 thread, the performance would be 1.6 times faster than the original. 
+\pagebreak
+
+However, as Figure 6 shows us, with 75\% of my program being able to run in parallel, at most the performance boost that we can get is limited to 4. Even if we had 65536 threads. This means that multithreading can give us performance boost, however that is limited. For example, even if we had our program's 95\% being able to run in parallel, that makes maximum limit of 20 times faster than single thread. 
+
+In conclusion, I really enjoyed implementing the multithread project. Also, I could learn some big lessons with this homework:
+\begin{itemize}
+    \item Multiple threads using single shared object will be just same as using a single thread. Or even might be worse. Using multiple consumers and producers with single shared object is same as single consumer and producer. 
+    \item Even if I manage to make it multithread, the speed up is limited by \textit{“Amdahl's law”}.
+    \item Fixing broken code with multithread is painful.
+    \item Threads do not synchronize automatically. At least in \texttt{C}.
+\end{itemize}
+
+With those two lessons, I came to conclusion that \textit{“Proper and precise usage of multithreading is beneficial, however improper and broken usage of multithreading will perform worse than single threaded"}. Also, let's not forget the fact that the time implementing and debugging broken code for multithreading was far beyond the time spent for single threaded programs.
+\par
+
+Since I had used some other programming languages such as \texttt{Java} and \texttt{Python}, I just looked into their methods of implementing mutexes and synchronizations.
+\begin{itemize}
+    \item \texttt{Java}: Has a keyword named \texttt{synchronized} and \texttt{atomic} which helps us resolve race conditions easily. 
+    \item \texttt{Python}: Has mutexes and semaphores.
+\end{itemize}
+
+In summary, the project became bigger than I expected and took more time as well. However, it was fun and enjoyed the journey of implementing a multithreaded program. Yes, it was painful but it was worth it. I will fix the project and resolve dead locks with the project when I have extra time (like in the winter break or some time that I can spare). I will be signing off this project and this document since I have to move forward for projects from the class. 
+
+\end{document}
+

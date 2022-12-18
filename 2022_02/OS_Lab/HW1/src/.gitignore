@@ -1,0 +1,8 @@
+.idea
+cmake-build-debug/
+cmake-build-debug-flagship/
+cmake-build-release-flagship/
+*.o
+*.out
+sish
+build/
