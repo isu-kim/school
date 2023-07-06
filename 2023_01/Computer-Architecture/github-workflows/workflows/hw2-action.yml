@@ -1,0 +1,23 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Build
+      run: |
+        cd hw2
+        make
+    - name: Check Inputs
+      run: |
+        cd hw2
+        ./mipsim -i ./inputs/prof_input1/input.bin
+        ./mipsim -i ./inputs/prof_input2/input.bin
+        ./mipsim -i ./inputs/new_factorial/factorial.bin
+        ./mipsim -i ./inputs/new_fibonacci/fibonacci.bin

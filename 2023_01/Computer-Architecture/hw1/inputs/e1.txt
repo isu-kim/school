@@ -1,0 +1,11 @@
+LW r0 r2 # Second needs to be constant
+LW r1 0x4
+ADD r2 r0 0x3 # Third needs to be register
+MOV r0 r2
+SW r0 STDOUT
+RST
+LW r0 0x2
+LW r1 0x4
+MUL 0x4 r0 r1 # First needs to be register
+MOV r0 r2
+SW r0 STDOUT

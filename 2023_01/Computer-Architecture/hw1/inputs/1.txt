@@ -1,0 +1,11 @@
+LW r0 0xF # The second operand is a number
+LW r1 0x4
+ADD r2 r0 r1
+MOV r0 r2
+SW r0 STDOUT # STDOUT is a signal to print out $r0
+RST # Reset all registers
+LW r0 0x2
+LW r1 0x4
+MUL r2 r0 r1
+MOV r0 r2
+SW r0 STDOUT

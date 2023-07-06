@@ -1,0 +1,8 @@
+LW r1 0x4  # Actually a constant 4
+LW r2 0x1  # Actually a constant 1
+LW r3 0x0  # i = 0
+ADD r3 r3 r2  # i++
+MUL r4 r1 r3  # a = i * 4
+SW r4 STDOUT  # print a, shall print out 4, 8 ~ 40
+SLT r0 r3 0xa  # i < 10
+BEQ r0 0x1 0x4  # loop
