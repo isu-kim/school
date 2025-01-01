@@ -4,3 +4,9 @@
 [submodule "KAIST_2024_MS/KAIST_2024_MS/ee817_pub"]
 	path = KAIST_2024_MS/KAIST_2024_MS/ee817_pub
 	url = https://github.com/isu-kim/ee817_pub
+[submodule "KAIST_2024_MS/ee515_pub"]
+	path = KAIST_2024_MS/ee515_pub
+	url = https://github.com/isu-kim/ee515_pub
+[submodule "KAIST_2024_MS/ee817_pub"]
+	path = KAIST_2024_MS/ee817_pub
+	url = https://github.com/isu-kim/ee817_pub
