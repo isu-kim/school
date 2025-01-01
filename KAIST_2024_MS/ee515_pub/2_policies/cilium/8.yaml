@@ -1,0 +1,18 @@
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "block-shell-injection"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: pyload-non
+  ingress:
+  - toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+      rules:
+        l7proto: http
+        l7:
+        - method: "POST"
+          body: "!/bin/|/bash|/sh"

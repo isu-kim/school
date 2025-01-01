@@ -1,0 +1,505 @@
+#==== policy-1-readonly-fs.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-readonly
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30011
+  selector:
+    app: pyload-readonly
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-readonly
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-readonly
+  template:
+    metadata:
+      labels:
+        app: pyload-readonly
+    spec:
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+---
+#==== policy-2-drop-capabilities.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-dropcap
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30012
+  selector:
+    app: pyload-dropcap
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-dropcap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-dropcap
+  template:
+    metadata:
+      labels:
+        app: pyload-dropcap
+    spec:
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        securityContext:
+          capabilities:
+            drop:
+              - ALL
+            add:
+              - NET_BIND_SERVICE
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+---
+#==== policy-3-nonroot.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-nonroot
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30013
+  selector:
+    app: pyload-nonroot
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-nonroot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-nonroot
+  template:
+    metadata:
+      labels:
+        app: pyload-nonroot
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+---
+#==== policy-4-seccomp.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-seccomp
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30014
+  selector:
+    app: pyload-seccomp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-seccomp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-seccomp
+  template:
+    metadata:
+      labels:
+        app: pyload-seccomp
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+---
+#==== policy-5-combined-strict.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-strict
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30015
+  selector:
+    app: pyload-strict
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-strict
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-strict
+  template:
+    metadata:
+      labels:
+        app: pyload-strict
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+---
+#==== policy-6-no-privileged.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-noprivilege
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30016
+  selector:
+    app: pyload-noprivilege
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-noprivilege
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-noprivilege
+  template:
+    metadata:
+      labels:
+        app: pyload-noprivilege
+    spec:
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        securityContext:
+          privileged: false
+          allowPrivilegeEscalation: false
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+---
+#==== policy-7-selinux.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-selinux
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30017
+  selector:
+    app: pyload-selinux
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-selinux
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-selinux
+  template:
+    metadata:
+      labels:
+        app: pyload-selinux
+    spec:
+      securityContext:
+        seLinuxOptions:
+          level: "s0:c123,c456"
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+---
+#==== policy-8-apparmor.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-apparmor
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30018
+  selector:
+    app: pyload-apparmor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-apparmor
+  annotations:
+    container.apparmor.security.beta.kubernetes.io/pyload: runtime/default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-apparmor
+  template:
+    metadata:
+      labels:
+        app: pyload-apparmor
+    spec:
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+---
+#==== policy-9-proc-mount.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-procmount
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30019
+  selector:
+    app: pyload-procmount
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-procmount
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-procmount
+  template:
+    metadata:
+      labels:
+        app: pyload-procmount
+    spec:
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        securityContext:
+          procMount: Default
+          allowPrivilegeEscalation: false
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+---
+#==== policy-10-ultra-restricted.yaml ====
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyload-service-ultra
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30020
+  selector:
+    app: pyload-ultra
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyload-deployment-ultra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyload-ultra
+  template:
+    metadata:
+      labels:
+        app: pyload-ultra
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: pyload
+        image: linuxserver/pyload-ng:version-0.5.0b3.dev85
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          privileged: false
+          capabilities:
+            drop:
+              - ALL
+          procMount: Default
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: downloads
+          mountPath: /downloads
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: downloads
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}

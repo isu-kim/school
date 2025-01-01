@@ -1,0 +1,21 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: process-capability-control
+spec:
+  kprobes:
+    - call: "cap_capable"
+      return: false
+      syscall: false
+      args:
+        - index: 0
+          type: "int"
+        - index: 1
+          type: "int"
+      selectors:
+        - matchArgs:
+          - index: 1
+            operator: "Equal"
+            values:
+              - "21"  # CAP_SYS_ADMIN
+      message: "CAP_SYS_ADMIN capability usage attempted"

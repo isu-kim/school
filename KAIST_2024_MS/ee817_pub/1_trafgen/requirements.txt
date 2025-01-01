@@ -1,0 +1,8 @@
+fastapi
+pydantic
+APScheduler
+scapy
+netifaces
+typing
+pathlib
+uvicorn
