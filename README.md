@@ -5,8 +5,9 @@ This repository contains codes that I have made throughout my undergraduate year
 
 ## Index
 - For all semesters before 2022's fall, it will be uploaded later.
-- [2022 Fall Semester](/2022_02) : One of my most painful semesters.
-- [2023 Spring Semester](/2023_01) : Just a normal semester.
+- [2022 Fall Semester](/DKU_2022_02) : One of my most painful semesters.
+- [2023 Spring Semester](/DKU_2023_01) : Just a normal semester.
+- [2024 Fall Semester](/KAIST_2024_MS): Just a bit more painful semester.
 
 ## LICENSE
 GNU General Public License v3.0.
